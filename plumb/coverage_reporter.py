@@ -11,6 +11,7 @@ from rich.console import Console
 from rich.table import Table
 
 from plumb.config import load_config
+from plumb.ignore import is_ignored, parse_plumbignore
 
 PLUMB_MARKER_RE = re.compile(r'#\s*plumb:(req-[a-f0-9]+)')
 FUNC_NAME_RE = re.compile(r'def test_req_([a-f0-9]+)_')
@@ -118,10 +119,13 @@ def _collect_source_summaries(repo_root: Path) -> dict[str, str]:
     """
     import ast
 
+    ignore_patterns = parse_plumbignore(repo_root)
     per_file: dict[str, str] = {}
     for item in sorted(repo_root.rglob("*.py")):
         rel = str(item.relative_to(repo_root))
         if ".plumb" in rel or "test_" in item.name or rel.startswith("tests/"):
+            continue
+        if is_ignored(rel, ignore_patterns):
             continue
         try:
             content = item.read_text()
