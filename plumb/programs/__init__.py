@@ -119,6 +119,7 @@ def run_with_retries(fn, *args, max_retries: int = 2, **kwargs):
                 raise PlumbAuthError(
                     f"API key is invalid or rejected: {e}"
                 ) from e
+            print(f"[retry {attempt+1}/{max_retries+1}] {type(e).__name__}: {e}")
             last_error = e
     raise PlumbInferenceError(
         f"LLM inference failed after {max_retries + 1} attempts: {last_error}"
