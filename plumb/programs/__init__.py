@@ -75,8 +75,8 @@ def validate_api_access() -> None:
         raise PlumbAuthError(f"Failed to verify LLM access: {e}") from e
 
 
-def get_program_lm(program_name: str, repo_root: str | Path | None = None) -> BaseLM | None:
-    """Return a per-program LM override from config, or None for the default."""
+def get_program_config(program_name: str, repo_root: str | Path | None = None) -> dict | None:
+    """Return the raw program_models entry for a program, or None."""
     from plumb.config import find_repo_root, load_config
 
     if repo_root is None:
@@ -86,7 +86,12 @@ def get_program_lm(program_name: str, repo_root: str | Path | None = None) -> Ba
     cfg = load_config(repo_root)
     if cfg is None:
         return None
-    entry = cfg.program_models.get(program_name)
+    return cfg.program_models.get(program_name)
+
+
+def get_program_lm(program_name: str, repo_root: str | Path | None = None) -> BaseLM | None:
+    """Return a per-program LM override from config, or None for the default."""
+    entry = get_program_config(program_name, repo_root)
     if entry is None:
         return None
     model = entry.get("model")
