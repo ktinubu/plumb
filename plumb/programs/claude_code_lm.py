@@ -123,7 +123,7 @@ class ClaudeCodeLM(BaseLM):
 
         text_input = _serialize_messages(prompt, messages)
         input_len = len(text_input)
-        print(f"[ClaudeCodeLM] Calling claude -p ({input_len} chars)...", file=sys.stderr)
+        print(f"[ClaudeCodeLM] Calling claude -p --model {self.cli_model} ({input_len} chars)...", file=sys.stderr)
         response_text = _call_claude(text_input, model=self.cli_model, timeout=self.timeout)
         print(f"[ClaudeCodeLM] Got response ({len(response_text)} chars)", file=sys.stderr)
         return _make_response(response_text, self.model)

@@ -806,11 +806,12 @@ def map_tests(dry_run):
     console.print(f"Found {len(test_summaries)} test functions and {len(requirements)} requirements.")
     console.print("Running LLM mapping...")
 
-    from plumb.programs import configure_dspy, run_chunked_mapper
+    from plumb.programs import configure_dspy, run_chunked_mapper, get_program_lm
     from plumb.programs.test_mapper import TestMapper
 
     configure_dspy()
     mapper = TestMapper()
+    override_lm = get_program_lm("test_mapper")
 
     req_json = json.dumps([{"id": r["id"], "text": r["text"]} for r in requirements])
     items = [(s["name"], json.dumps(s)) for s in test_summaries]
@@ -819,9 +820,16 @@ def map_tests(dry_run):
         return json.dumps([json.loads(t) for _, t in chunk])
 
     try:
-        mappings = run_chunked_mapper(
-            mapper, req_json, items, budget=60000, combine_fn=_combine,
-        )
+        if override_lm:
+            import dspy
+            with dspy.context(lm=override_lm):
+                mappings = run_chunked_mapper(
+                    mapper, req_json, items, budget=60000, combine_fn=_combine,
+                )
+        else:
+            mappings = run_chunked_mapper(
+                mapper, req_json, items, budget=60000, combine_fn=_combine,
+            )
     except Exception as e:
         console.print(f"[red]Mapping failed: {e}[/red]")
         raise SystemExit(1)

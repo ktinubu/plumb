@@ -329,11 +329,12 @@ def check_spec_to_code_coverage(
         return (0, len(requirements))
 
     # --- LLM mapping ---
-    from plumb.programs import configure_dspy, run_chunked_mapper
+    from plumb.programs import configure_dspy, run_chunked_mapper, get_program_lm
     from plumb.programs.code_coverage_mapper import CodeCoverageMapper
 
     configure_dspy()
     mapper = CodeCoverageMapper()
+    override_lm = get_program_lm("code_coverage_mapper", repo_root)
 
     if full_remap:
         dirty_reqs = requirements
@@ -351,10 +352,18 @@ def check_spec_to_code_coverage(
     def _combine(chunk):
         return "\n\n".join(text for _, text in chunk)
 
-    results = run_chunked_mapper(
-        mapper, req_json, items, budget=60000,
-        combine_fn=_combine, merge_fn=merge_coverage_results,
-    )
+    if override_lm:
+        import dspy
+        with dspy.context(lm=override_lm):
+            results = run_chunked_mapper(
+                mapper, req_json, items, budget=60000,
+                combine_fn=_combine, merge_fn=merge_coverage_results,
+            )
+    else:
+        results = run_chunked_mapper(
+            mapper, req_json, items, budget=60000,
+            combine_fn=_combine, merge_fn=merge_coverage_results,
+        )
 
     # Build fresh results dict from LLM output
     fresh_results: dict[str, dict] = {}
