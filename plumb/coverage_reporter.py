@@ -30,6 +30,7 @@ def run_pytest_coverage(repo_root: str | Path) -> dict | None:
         result = subprocess.run(
             [
                 sys.executable, "-m", "pytest",
+                "-m", "not slow",
                 "--cov=.",
                 f"--cov-report=json:{cov_json}",
                 "--cov-report=",
