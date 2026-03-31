@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import tempfile
 from types import SimpleNamespace
 from typing import Any
 
@@ -44,6 +45,7 @@ def _call_claude(prompt: str, model: str | None = None, timeout: int = 300) -> s
         text=True,
         env=env,
         timeout=timeout,
+        cwd=tempfile.gettempdir(),
     )
     if result.returncode != 0:
         raise RuntimeError(

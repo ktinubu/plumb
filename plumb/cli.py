@@ -115,7 +115,7 @@ def _init_clone_setup(repo_root: Path, cfg: PlumbConfig) -> None:
         hooks_dir = repo_root / ".git" / "hooks"
         hooks_dir.mkdir(exist_ok=True)
         hook_path = hooks_dir / "pre-commit"
-        hook_path.write_text("#!/bin/sh\nplumb hook\nexit $?\n")
+        hook_path.write_text('#!/bin/sh\n[ "$PLUMB_SKIP" = "1" ] && exit 0\nplumb hook\nexit $?\n')
         hook_path.chmod(0o755)
         post_commit_path = hooks_dir / "post-commit"
         post_commit_path.write_text("#!/bin/sh\nplumb post-commit\n")
@@ -249,7 +249,7 @@ def init():
         hooks_dir = repo_root / ".git" / "hooks"
         hooks_dir.mkdir(exist_ok=True)
         hook_path = hooks_dir / "pre-commit"
-        hook_path.write_text("#!/bin/sh\nplumb hook\nexit $?\n")
+        hook_path.write_text('#!/bin/sh\n[ "$PLUMB_SKIP" = "1" ] && exit 0\nplumb hook\nexit $?\n')
         hook_path.chmod(0o755)
         post_commit_path = hooks_dir / "post-commit"
         post_commit_path.write_text("#!/bin/sh\nplumb post-commit\n")

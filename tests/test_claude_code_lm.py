@@ -125,6 +125,19 @@ class TestCallClaude:
             with pytest.raises(subprocess.TimeoutExpired):
                 _call_claude("test")
 
+    def test_runs_in_temp_directory_not_inherited_cwd(self):
+        """subprocess.run must set cwd to a temp dir to avoid corrupting
+        a git worktree's index when Claude Code plugins run git operations."""
+        import tempfile
+
+        mock_result = subprocess.CompletedProcess(
+            args=["claude"], returncode=0, stdout="ok", stderr=""
+        )
+        with patch("subprocess.run", return_value=mock_result) as mock_run:
+            _call_claude("test")
+            cwd = mock_run.call_args[1]["cwd"]
+            assert cwd == tempfile.gettempdir()
+
 
 class TestClaudeCodeLM:
     def test_is_base_lm_subclass(self):
