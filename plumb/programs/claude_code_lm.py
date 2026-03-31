@@ -11,7 +11,6 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
-import tempfile
 from types import SimpleNamespace
 from typing import Any
 
@@ -25,18 +24,43 @@ def find_claude_cli() -> str | None:
     return shutil.which("claude")
 
 
+# GIT_* env vars that are safe to pass through to claude -p.
+# Everything else starting with GIT_ is stripped to prevent claude -p's
+# plugin init from corrupting a worktree's git index during pre-commit hooks.
+# Pattern from pre-commit framework:
+# https://github.com/pre-commit/pre-commit/blob/ec1928f37e8abd7bab0b7ed29a031e5fd8875be7/pre_commit/git.py#L27
+_GIT_ENV_WHITELIST = {
+    "GIT_EXEC_PATH",
+    "GIT_SSH",
+    "GIT_SSH_COMMAND",
+    "GIT_SSL_CAINFO",
+    "GIT_SSL_NO_VERIFY",
+    "GIT_CONFIG_COUNT",
+    "GIT_HTTP_PROXY_AUTHMETHOD",
+    "GIT_ALLOW_PROTOCOL",
+    "GIT_ASKPASS",
+}
+
+
 def _call_claude(prompt: str, model: str | None = None, timeout: int = 300) -> str:
     """Run ``claude -p`` with *prompt* on stdin and return the text response.
 
-    Strips the ``CLAUDECODE`` env var to allow nesting inside a Claude Code
-    session (the guard is for interactive terminal conflicts; programmatic
-    subprocess usage is safe).
+    Strips ``CLAUDECODE`` and repo-local ``GIT_*`` env vars so that claude -p's
+    plugin init cannot corrupt a worktree's git index during pre-commit hooks.
+    See https://github.com/ktinubu/plumb/issues/1.
     """
     cmd = ["claude", "-p", "--output-format", "text"]
     if model:
         cmd.extend(["--model", model])
 
-    env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}
+    env = {
+        k: v for k, v in os.environ.items()
+        if k != "CLAUDECODE" and (
+            not k.startswith("GIT_")
+            or k.startswith(("GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_"))
+            or k in _GIT_ENV_WHITELIST
+        )
+    }
 
     result = subprocess.run(
         cmd,
@@ -45,7 +69,6 @@ def _call_claude(prompt: str, model: str | None = None, timeout: int = 300) -> s
         text=True,
         env=env,
         timeout=timeout,
-        cwd=tempfile.gettempdir(),
     )
     if result.returncode != 0:
         raise RuntimeError(

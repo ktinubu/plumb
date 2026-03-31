@@ -115,11 +115,17 @@ def _init_plumb(repo_path):
 @pytest.mark.slow
 @needs_claude_cli
 class TestClaudePWorktreeIndex:
-    """Test A: claude -p called directly from a pre-commit hook."""
+    """Test A: claude -p called directly from a pre-commit hook.
 
-    def test_commit_succeeds_with_index_intact(self, tmp_path):
-        """git commit in a worktree must succeed with index intact when
-        claude -p is called from the pre-commit hook."""
+    Documents the upstream Claude Code CLI bug: claude -p corrupts
+    worktree indexes when GIT_INDEX_FILE is inherited. This test
+    asserts the buggy behavior so it will break (become a passing
+    test) if/when Claude Code fixes the upstream issue.
+    """
+
+    def test_raw_claude_p_corrupts_worktree_index(self, tmp_path):
+        """claude -p called directly from a hook (no plumb) corrupts
+        the worktree index — this is an upstream Claude Code bug."""
         main_dir, wt_dir = _create_repo_with_worktree(tmp_path)
         baseline = _count_index_entries(wt_dir)
         assert baseline == 20
@@ -132,28 +138,65 @@ class TestClaudePWorktreeIndex:
         result = _stage_and_commit(wt_dir)
         after = _count_index_entries(wt_dir)
 
+        # Upstream bug: claude -p corrupts the index
+        assert after != baseline, (
+            "Expected corruption (upstream bug) but index stayed intact. "
+            "If this fails, Claude Code may have fixed the upstream issue!"
+        )
+        assert result.returncode != 0, (
+            "Expected commit failure (upstream bug) but it succeeded. "
+            "If this fails, Claude Code may have fixed the upstream issue!"
+        )
+
+
+@pytest.mark.slow
+@needs_claude_cli
+class TestShellLevelStrippingPreventsCorruption:
+    """Test B: stripping GIT_INDEX_FILE and GIT_DIR at the shell level
+    before calling claude -p prevents the corruption."""
+
+    def test_unset_git_env_vars_before_claude_p(self, tmp_path):
+        """Unsetting GIT_INDEX_FILE and GIT_DIR in the hook script
+        before calling claude -p keeps the index intact."""
+        main_dir, wt_dir = _create_repo_with_worktree(tmp_path)
+        baseline = _count_index_entries(wt_dir)
+        assert baseline == 20
+
+        _install_hook(
+            main_dir,
+            '#!/bin/sh\n'
+            'env -u GIT_INDEX_FILE -u GIT_DIR '
+            'sh -c \'echo "say hello" | claude -p --output-format text >/dev/null 2>&1\'\n'
+            'exit 0\n',
+        )
+
+        result = _stage_and_commit(wt_dir)
+        after = _count_index_entries(wt_dir)
+
         assert result.returncode == 0, (
             f"Commit failed: {result.stderr[:300]}"
         )
         assert after == baseline + 1, (
-            f"Expected {baseline + 1} index entries (original + new file), got {after}"
+            f"Expected {baseline + 1} index entries, got {after}"
         )
 
 
 @pytest.mark.slow
 @needs_claude_cli
 class TestPlumbHookWorktreeIndex:
-    """Test B: plumb hook called from a pre-commit hook (real code path)."""
+    """Test C: plumb hook called from a pre-commit hook (real code path).
+
+    Verifies that plumb's fix (stripping GIT_INDEX_FILE/GIT_DIR) protects
+    the worktree index when plumb hook runs during git commit.
+    """
 
     def test_commit_succeeds_with_index_intact(self, tmp_path):
         """git commit in a worktree must succeed with index intact when
         plumb hook calls _call_claude() during pre-commit."""
         main_dir, wt_dir = _create_repo_with_worktree(tmp_path)
 
-        # plumb init needs to happen in the main repo (worktree shares hooks)
         _init_plumb(main_dir)
 
-        # Commit plumb files so they appear in the worktree
         repo = Repo(main_dir)
         repo.index.add([
             ".plumb/config.json",
@@ -161,7 +204,6 @@ class TestPlumbHookWorktreeIndex:
         ])
         repo.index.commit("add plumb config")
 
-        # Pull the new commit into the worktree
         wt_repo = Repo(wt_dir)
         wt_repo.git.merge("main", "--no-edit")
 
@@ -172,9 +214,8 @@ class TestPlumbHookWorktreeIndex:
 
         assert after == baseline + 1, (
             f"Expected {baseline + 1} index entries (original + new file), got {after}. "
-            f"rc={result.returncode}, stderr={result.stderr[:300]}"
+            f"rc={result.returncode}, stderr={result.stderr[:1000]}"
         )
-        # plumb hook may return non-zero (pending decisions), but the index must not be corrupted
         assert "Error building trees" not in result.stderr, (
-            f"Index was corrupted: {result.stderr[:300]}"
+            f"Index was corrupted: {result.stderr[:1000]}"
         )

@@ -125,18 +125,37 @@ class TestCallClaude:
             with pytest.raises(subprocess.TimeoutExpired):
                 _call_claude("test")
 
-    def test_runs_in_temp_directory_not_inherited_cwd(self):
-        """subprocess.run must set cwd to a temp dir to avoid corrupting
-        a git worktree's index when Claude Code plugins run git operations."""
-        import tempfile
-
+    def test_strips_repo_local_git_env_vars(self):
+        """Repo-local GIT_* vars must be stripped to prevent claude -p
+        from corrupting a worktree's git index during pre-commit hooks.
+        Safe transport/config vars (GIT_SSH, GIT_CONFIG_*, etc.) are kept."""
         mock_result = subprocess.CompletedProcess(
             args=["claude"], returncode=0, stdout="ok", stderr=""
         )
-        with patch("subprocess.run", return_value=mock_result) as mock_run:
+        with patch("subprocess.run", return_value=mock_result) as mock_run, \
+             patch.dict("os.environ", {
+                 "GIT_INDEX_FILE": "/tmp/.git/worktrees/wt/index",
+                 "GIT_DIR": "/tmp/.git/worktrees/wt",
+                 "GIT_WORK_TREE": "/tmp/worktree",
+                 "GIT_SSH_COMMAND": "ssh -i ~/.ssh/id_rsa",
+                 "GIT_CONFIG_COUNT": "1",
+                 "GIT_CONFIG_KEY_0": "user.name",
+                 "GIT_CONFIG_VALUE_0": "Test",
+                 "PATH": "/usr/bin",
+             }):
             _call_claude("test")
-            cwd = mock_run.call_args[1]["cwd"]
-            assert cwd == tempfile.gettempdir()
+            env = mock_run.call_args[1]["env"]
+            # Repo-local vars stripped
+            assert "GIT_INDEX_FILE" not in env
+            assert "GIT_DIR" not in env
+            assert "GIT_WORK_TREE" not in env
+            # Transport/config vars kept
+            assert env["GIT_SSH_COMMAND"] == "ssh -i ~/.ssh/id_rsa"
+            assert env["GIT_CONFIG_COUNT"] == "1"
+            assert env["GIT_CONFIG_KEY_0"] == "user.name"
+            assert env["GIT_CONFIG_VALUE_0"] == "Test"
+            # Non-GIT vars kept
+            assert "PATH" in env
 
 
 class TestClaudeCodeLM:
