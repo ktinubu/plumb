@@ -69,6 +69,7 @@ class TestHookWithConversation:
         with patch("plumb.programs.validate_api_access"), \
              patch("plumb.git_hook._analyze_diff", return_value="feature: hello"), \
              patch("plumb.git_hook._extract_decisions_from_conversation", return_value=mock_decisions), \
+             patch("plumb.git_hook.deduplicate_decisions", side_effect=lambda decisions, **kw: decisions), \
              patch("plumb.git_hook._synthesize_questions", return_value=mock_decisions):
             result = run_hook(initialized_repo)
             assert result == 1  # Should block due to pending
@@ -205,6 +206,7 @@ class TestLastExtractedAt:
         with patch("plumb.programs.validate_api_access"), \
              patch("plumb.git_hook._analyze_diff", return_value="ok"), \
              patch("plumb.git_hook._extract_decisions_from_conversation", return_value=mock_decisions), \
+             patch("plumb.git_hook.deduplicate_decisions", side_effect=lambda decisions, **kw: decisions), \
              patch("plumb.git_hook._synthesize_questions", return_value=mock_decisions):
             run_hook(initialized_repo)
 

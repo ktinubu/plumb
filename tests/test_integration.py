@@ -87,18 +87,20 @@ class TestFullHookFlow:
         with patch("plumb.programs.validate_api_access"), \
              patch("plumb.git_hook._analyze_diff", return_value="feature: auth change"), \
              patch("plumb.git_hook._extract_decisions_from_conversation", return_value=mock_decisions), \
+             patch("plumb.git_hook.deduplicate_decisions", side_effect=lambda decisions, **kw: decisions), \
              patch("plumb.git_hook._synthesize_questions", return_value=mock_decisions):
             result = run_hook(full_repo)
             assert result == 1
 
-        # Verify decisions were written
-        decisions = read_decisions(full_repo)
+        # Verify decisions were written (branch-scoped)
+        decisions = read_all_decisions(full_repo)
         pending = [d for d in decisions if d.status == "pending"]
         assert len(pending) >= 1
 
-        # Approve the decision
+        # Approve the decision (need branch for branch-scoped storage)
+        branch = Repo(full_repo).active_branch.name
         for d in pending:
-            update_decision_status(full_repo, d.id, status="approved",
+            update_decision_status(full_repo, d.id, branch=branch, status="approved",
                                    reviewed_at=datetime.now(timezone.utc).isoformat())
 
         # Second hook run — should allow (no pending decisions)
@@ -141,15 +143,16 @@ class TestAmendFlow:
         """When amending, old decisions for that commit should be removed."""
         repo = Repo(full_repo)
         initial_sha = str(repo.head.commit)
+        branch = repo.active_branch.name
 
-        # Add a decision tied to the initial commit
+        # Add a decision tied to the initial commit (branch-scoped)
         d = Decision(
             id="dec-amend1",
             status="approved",
             commit_sha=initial_sha,
             decision="Old decision",
         )
-        append_decision(full_repo, d)
+        append_decision(full_repo, d, branch=branch)
 
         # Make a new commit
         f = full_repo / "src" / "new.py"
@@ -171,11 +174,12 @@ class TestAmendFlow:
              patch("plumb.git_hook._analyze_diff", return_value="change"), \
              patch("plumb.git_hook._extract_decisions_from_conversation", return_value=[]), \
              patch("plumb.git_hook._extract_decisions_from_diff", return_value=[]), \
+             patch("plumb.git_hook.deduplicate_decisions", side_effect=lambda decisions, **kw: decisions), \
              patch("plumb.coverage_reporter.print_coverage_report"):
             run_hook(full_repo)
 
         # Old decision should be removed
-        decisions = read_decisions(full_repo)
+        decisions = read_all_decisions(full_repo)
         old = [d for d in decisions if d.id == "dec-amend1"]
         assert len(old) == 0
 
