@@ -256,13 +256,14 @@ class TestRunHook:
             result = run_hook(initialized_repo)
             assert result == 1
 
-    def test_missing_api_key_blocks_commit(self, initialized_repo):
+    def test_missing_api_key_blocks_post_commit(self, initialized_repo):
         # plumb:req-3f212a0d
-        """Missing ANTHROPIC_API_KEY should block commit when there's a staged diff."""
+        """Missing ANTHROPIC_API_KEY should block post-commit analysis."""
         repo = Repo(initialized_repo)
         f = initialized_repo / "new.py"
         f.write_text("x = 1\n")
         repo.index.add(["new.py"])
+        repo.index.commit("add new.py")
 
         with patch("dotenv.load_dotenv"), \
              patch.dict("os.environ", {}, clear=True), \
@@ -270,7 +271,7 @@ class TestRunHook:
             # Remove ANTHROPIC_API_KEY if present
             import os
             os.environ.pop("ANTHROPIC_API_KEY", None)
-            result = run_hook(initialized_repo)
+            result = run_hook(initialized_repo, post_commit=True)
             assert result == 1
 
     def test_dry_run_returns_0(self, initialized_repo):

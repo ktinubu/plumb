@@ -118,7 +118,9 @@ def _init_clone_setup(repo_root: Path, cfg: PlumbConfig) -> None:
         hook_path.write_text('#!/bin/sh\n[ "$PLUMB_SKIP" = "1" ] && exit 0\nplumb hook\nexit $?\n')
         hook_path.chmod(0o755)
         post_commit_path = hooks_dir / "post-commit"
-        post_commit_path.write_text("#!/bin/sh\nplumb post-commit\n")
+        post_commit_path.write_text(
+            '#!/bin/sh\n[ "$PLUMB_SKIP" = "1" ] && exit 0\nplumb post-commit\nnohup plumb hook --post-commit > /dev/null 2>&1 &\n'
+        )
         post_commit_path.chmod(0o755)
 
         # Verify API access
@@ -252,7 +254,9 @@ def init():
         hook_path.write_text('#!/bin/sh\n[ "$PLUMB_SKIP" = "1" ] && exit 0\nplumb hook\nexit $?\n')
         hook_path.chmod(0o755)
         post_commit_path = hooks_dir / "post-commit"
-        post_commit_path.write_text("#!/bin/sh\nplumb post-commit\n")
+        post_commit_path.write_text(
+            '#!/bin/sh\n[ "$PLUMB_SKIP" = "1" ] && exit 0\nplumb post-commit\nnohup plumb hook --post-commit > /dev/null 2>&1 &\n'
+        )
         post_commit_path.chmod(0o755)
 
         # Create default .plumbignore
@@ -352,12 +356,13 @@ This project uses Plumb to keep the spec, tests, and code in sync.
 
 @cli.command()
 @click.option("--dry-run", is_flag=True, help="Preview only, don't write decisions")
-def hook(dry_run):
-    """Run the pre-commit hook analysis."""
+@click.option("--post-commit", is_flag=True, help="Analyze committed diff (HEAD~1..HEAD) instead of staged changes")
+def hook(dry_run, post_commit):
+    """Run the pre-commit hook (gate) or post-commit analysis."""
     from plumb.git_hook import run_hook
 
     repo_root = find_repo_root()
-    exit_code = run_hook(repo_root, dry_run=dry_run)
+    exit_code = run_hook(repo_root, dry_run=dry_run, post_commit=post_commit)
     raise SystemExit(exit_code)
 
 

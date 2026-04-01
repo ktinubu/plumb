@@ -35,11 +35,16 @@ def _get_plumb_managed_paths(config) -> list[str]:
     return [".plumb/"] + list(config.spec_paths)
 
 
-def _get_staged_diff_filtered(repo: Repo, config) -> str:
-    """Get staged diff excluding plumb-managed and ignored files."""
+def _get_staged_diff_filtered(repo: Repo, config, post_commit: bool = False) -> str:
+    """Get diff excluding plumb-managed and ignored files.
+
+    When post_commit is True, reads the just-committed diff (HEAD~1..HEAD)
+    instead of the staging area (--cached).
+    """
+    diff_ref = ["HEAD~1", "HEAD"] if post_commit else ["--cached"]
     managed = _get_plumb_managed_paths(config)
     ignore_patterns = parse_plumbignore(repo.working_dir)
-    staged_files = repo.git.diff("--cached", "--name-only").splitlines()
+    staged_files = repo.git.diff(*diff_ref, "--name-only").splitlines()
     if not staged_files:
         return ""
     unmanaged = [
@@ -49,7 +54,7 @@ def _get_staged_diff_filtered(repo: Repo, config) -> str:
     ]
     if not unmanaged:
         return ""
-    return repo.git.diff("--cached", "--", *unmanaged)
+    return repo.git.diff(*diff_ref, "--", *unmanaged)
 
 
 def _get_branch_name(repo: Repo) -> str:
@@ -274,15 +279,21 @@ def _format_json_output(pending: list[Decision]) -> str:
     )
 
 
-def run_hook(repo_root: str | Path | None = None, dry_run: bool = False) -> int:
+def run_hook(repo_root: str | Path | None = None, dry_run: bool = False, post_commit: bool = False) -> int:
     """Central hook orchestrator. Returns exit code (0 = allow commit, 1 = block).
+
+    When post_commit is False (pre-commit gate): checks for pending decisions
+    on disk and blocks if any exist. No LLM work.
+
+    When post_commit is True (post-commit background): reads the committed diff
+    (HEAD~1..HEAD) and runs the full LLM analysis pipeline.
 
     Top-level try/except: on ANY internal error, print warning to stderr, return 0.
     Never block commits due to internal Plumb errors.
     Auth errors block commits — a missing/invalid API key must be fixed.
     """
     try:
-        return _run_hook_inner(repo_root, dry_run)
+        return _run_hook_inner(repo_root, dry_run, post_commit)
     except PlumbAuthError as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
@@ -292,7 +303,7 @@ def run_hook(repo_root: str | Path | None = None, dry_run: bool = False) -> int:
         return 0
 
 
-def _run_hook_inner(repo_root: str | Path | None, dry_run: bool) -> int:
+def _run_hook_inner(repo_root: str | Path | None, dry_run: bool, post_commit: bool = False) -> int:
     import time
 
     timings: list[tuple[str, float]] = []
@@ -328,9 +339,24 @@ def _run_hook_inner(repo_root: str | Path | None, dry_run: bool) -> int:
 
         repo = Repo(repo_root)
 
-    # 2. Get staged diff and branch (excluding plumb-managed files)
-    with _timed("Staged diff"):
-        diff = _get_staged_diff_filtered(repo, config)
+    # 1b. Gate: check pending decisions from prior background runs.
+    #     Only in pre-commit mode (not post_commit). Block if any pending.
+    if not post_commit:
+        with _timed("Gate check"):
+            all_decisions = read_all_decisions(repo_root)
+            pending = [d for d in all_decisions if d.status == "pending"]
+            if pending:
+                is_tty = sys.stdout.isatty()
+                if is_tty:
+                    print(_format_tty_output(pending))
+                else:
+                    print(_format_json_output(pending))
+                return 1
+        return 0
+
+    # 2. Get diff and branch (excluding plumb-managed files)
+    with _timed("Diff"):
+        diff = _get_staged_diff_filtered(repo, config, post_commit=post_commit)
         if not diff:
             return 0
 

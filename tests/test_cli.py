@@ -142,7 +142,7 @@ class TestHook:
              patch("plumb.git_hook.run_hook", return_value=0) as mock_hook:
             result = runner.invoke(cli, ["hook", "--dry-run"])
             assert result.exit_code == 0
-            mock_hook.assert_called_once_with(initialized_repo, dry_run=True)
+            mock_hook.assert_called_once_with(initialized_repo, dry_run=True, post_commit=False)
 
 
 class TestApprove:
