@@ -91,12 +91,18 @@ def _check_broken_refs(repo: Repo, decisions: list[Decision]) -> list[Decision]:
 
 def _analyze_diff(diff: str) -> str:
     """Run DiffAnalyzer on the staged diff. Returns summary string."""
-    from plumb.programs import configure_dspy, run_with_retries
+    import dspy
+    from plumb.programs import configure_dspy, run_with_retries, get_program_lm
     from plumb.programs.diff_analyzer import DiffAnalyzer
 
     configure_dspy()
     analyzer = DiffAnalyzer()
-    summaries = run_with_retries(analyzer, diff)
+    override_lm = get_program_lm("diff_analyzer")
+    if override_lm:
+        with dspy.context(lm=override_lm):
+            summaries = run_with_retries(analyzer, diff)
+    else:
+        summaries = run_with_retries(analyzer, diff)
     lines = []
     for s in summaries:
         lines.append(f"[{s.change_type}] {', '.join(s.files_changed)}: {s.summary}")
@@ -107,7 +113,9 @@ def _extract_decisions_from_conversation(
     repo_root: Path, config, diff_summary: str
 ) -> list[Decision]:
     """Read conversation log, chunk it, run DecisionExtractor per chunk."""
-    from plumb.programs import configure_dspy, run_with_retries
+    import dspy
+    from contextlib import nullcontext
+    from plumb.programs import configure_dspy, run_with_retries, get_program_lm
     from plumb.programs.decision_extractor import DecisionExtractor
 
     turns = read_conversation(
@@ -124,52 +132,65 @@ def _extract_decisions_from_conversation(
 
     configure_dspy()
     extractor = DecisionExtractor()
+    override_lm = get_program_lm("decision_extractor")
     now = datetime.now(timezone.utc).isoformat()
     branch = _get_branch_name(Repo(repo_root))
 
     all_decisions: list[Decision] = []
-    for chunk in chunks:
-        try:
-            extracted = run_with_retries(
-                extractor, chunk.text, diff_summary
-            )
-        except Exception:
-            continue
-        for ed in extracted:
-            if not ed.spec_relevant:
-                continue
-            all_decisions.append(
-                Decision(
-                    id=generate_decision_id(),
-                    status="pending",
-                    question=ed.question,
-                    decision=ed.decision,
-                    made_by=ed.made_by,
-                    branch=branch,
-                    confidence=ed.confidence,
-                    chunk_index=chunk.chunk_index,
-                    conversation_available=True,
-                    created_at=now,
+    ctx = dspy.context(lm=override_lm) if override_lm else nullcontext()
+    with ctx:
+        for chunk in chunks:
+            try:
+                extracted = run_with_retries(
+                    extractor, chunk.text, diff_summary
                 )
-            )
+            except Exception:
+                continue
+            for ed in extracted:
+                if not ed.spec_relevant:
+                    continue
+                all_decisions.append(
+                    Decision(
+                        id=generate_decision_id(),
+                        status="pending",
+                        question=ed.question,
+                        decision=ed.decision,
+                        made_by=ed.made_by,
+                        branch=branch,
+                        confidence=ed.confidence,
+                        chunk_index=chunk.chunk_index,
+                        conversation_available=True,
+                        created_at=now,
+                    )
+                )
     return all_decisions
 
 
 def _extract_decisions_from_diff(diff_summary: str, branch: str) -> list[Decision]:
     """Fallback: extract decisions from diff summary alone."""
-    from plumb.programs import configure_dspy, run_with_retries
+    import dspy
+    from plumb.programs import configure_dspy, run_with_retries, get_program_lm
     from plumb.programs.decision_extractor import DecisionExtractor
 
     configure_dspy()
     extractor = DecisionExtractor()
+    override_lm = get_program_lm("decision_extractor")
     now = datetime.now(timezone.utc).isoformat()
 
     try:
-        extracted = run_with_retries(
-            extractor,
-            f"No conversation available. Diff summary:\n{diff_summary}",
-            diff_summary,
-        )
+        if override_lm:
+            with dspy.context(lm=override_lm):
+                extracted = run_with_retries(
+                    extractor,
+                    f"No conversation available. Diff summary:\n{diff_summary}",
+                    diff_summary,
+                )
+        else:
+            extracted = run_with_retries(
+                extractor,
+                f"No conversation available. Diff summary:\n{diff_summary}",
+                diff_summary,
+            )
     except Exception:
         return []
 

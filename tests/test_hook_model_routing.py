@@ -263,11 +263,12 @@ class TestHookModelRouting:
             f"Expected at least 3 calls, got {len(calls)}. Calls: {calls}"
         )
 
-        # ALL calls should use haiku when config says haiku
-        for i, model in enumerate(models):
+        # Call 1 is validate_api_access (smoke test) — uses default, no config key
+        # Calls 2+ (analyze, extract, dedup, synth) should all use haiku
+        for i, model in enumerate(models[1:], start=2):
             assert model == "claude-haiku-4-5-20251001", (
-                f"Call {i+1} used --model {model}, expected claude-haiku-4-5-20251001. "
-                f"All hook calls should respect program_models config. "
+                f"Call {i} used --model {model}, expected claude-haiku-4-5-20251001. "
+                f"All configured program calls should respect program_models config. "
                 f"All models: {models}"
             )
 
