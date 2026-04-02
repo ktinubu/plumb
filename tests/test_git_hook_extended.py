@@ -35,11 +35,12 @@ class TestDetectAmendExtended:
 
 class TestHookWithConversation:
     def test_with_conversation_log(self, initialized_repo):
-        """Test that conversation log is read when available."""
+        """Test that conversation log is read and decisions extracted in post-commit mode."""
         repo = Repo(initialized_repo)
         f = initialized_repo / "code.py"
         f.write_text("hello = True\n")
         repo.index.add(["code.py"])
+        repo.index.commit("add code.py")
 
         # Create a fake conversation log
         log_path = initialized_repo / "conv.jsonl"
@@ -71,7 +72,7 @@ class TestHookWithConversation:
              patch("plumb.git_hook._extract_decisions_from_conversation", return_value=mock_decisions), \
              patch("plumb.git_hook.deduplicate_decisions", side_effect=lambda decisions, **kw: decisions), \
              patch("plumb.git_hook._synthesize_questions", return_value=mock_decisions):
-            result = run_hook(initialized_repo)
+            result = run_hook(initialized_repo, post_commit=True)
             assert result == 1  # Should block due to pending
 
     def test_json_output_structure(self):
@@ -197,6 +198,7 @@ class TestLastExtractedAt:
         f = initialized_repo / "x.py"
         f.write_text("x=1\n")
         repo.index.add(["x.py"])
+        repo.index.commit("add x.py")
 
         mock_decisions = [
             Decision(id="dec-1", status="pending", question="Q?",
@@ -208,7 +210,7 @@ class TestLastExtractedAt:
              patch("plumb.git_hook._extract_decisions_from_conversation", return_value=mock_decisions), \
              patch("plumb.git_hook.deduplicate_decisions", side_effect=lambda decisions, **kw: decisions), \
              patch("plumb.git_hook._synthesize_questions", return_value=mock_decisions):
-            run_hook(initialized_repo)
+            run_hook(initialized_repo, post_commit=True)
 
         config = load_config(initialized_repo)
         assert config.last_extracted_at is not None

@@ -65,10 +65,11 @@ class TestFullHookFlow:
     def test_stage_hook_approve_commit(self, full_repo):
         repo = Repo(full_repo)
 
-        # Stage a new change
+        # Stage and commit a change (post-commit needs HEAD~1..HEAD diff)
         auth = full_repo / "src" / "auth.py"
         auth.write_text("def login():\n    return True  # auto-approve\n")
         repo.index.add(["src/auth.py"])
+        repo.index.commit("change auth.py")
 
         mock_decisions = [
             Decision(
@@ -83,13 +84,13 @@ class TestFullHookFlow:
             )
         ]
 
-        # First hook run — should block (pending decisions)
+        # Post-commit hook run — extracts decisions and blocks (pending)
         with patch("plumb.programs.validate_api_access"), \
              patch("plumb.git_hook._analyze_diff", return_value="feature: auth change"), \
              patch("plumb.git_hook._extract_decisions_from_conversation", return_value=mock_decisions), \
              patch("plumb.git_hook.deduplicate_decisions", side_effect=lambda decisions, **kw: decisions), \
              patch("plumb.git_hook._synthesize_questions", return_value=mock_decisions):
-            result = run_hook(full_repo)
+            result = run_hook(full_repo, post_commit=True)
             assert result == 1
 
         # Verify decisions were written (branch-scoped)
@@ -103,14 +104,9 @@ class TestFullHookFlow:
             update_decision_status(full_repo, d.id, branch=branch, status="approved",
                                    reviewed_at=datetime.now(timezone.utc).isoformat())
 
-        # Second hook run — should allow (no pending decisions)
-        with patch("plumb.programs.validate_api_access"), \
-             patch("plumb.git_hook._analyze_diff", return_value="feature: auth change"), \
-             patch("plumb.git_hook._extract_decisions_from_conversation", return_value=[]), \
-             patch("plumb.git_hook._extract_decisions_from_diff", return_value=[]), \
-             patch("plumb.coverage_reporter.print_coverage_report"):
-            result = run_hook(full_repo)
-            assert result == 0
+        # Pre-commit gate — should allow (no pending decisions)
+        result = run_hook(full_repo)
+        assert result == 0
 
     def test_reject_flow(self, full_repo):
         """Test rejection creates correct status."""
@@ -154,29 +150,20 @@ class TestAmendFlow:
         )
         append_decision(full_repo, d, branch=branch)
 
-        # Make a new commit
+        # Make a new commit — HEAD~1 = initial_sha = config.last_commit → amend detected
         f = full_repo / "src" / "new.py"
         f.write_text("x = 1\n")
         repo.index.add(["src/new.py"])
         repo.index.commit("second commit")
 
-        # Now config's last_commit = initial_sha, and HEAD parent = initial_sha
-        # This simulates an amend
-        config = load_config(full_repo)
-        config.last_commit = initial_sha
-        save_config(full_repo, config)
-
-        # Stage more changes for the "amend"
-        f.write_text("x = 2\n")
-        repo.index.add(["src/new.py"])
-
+        # Post-commit hook: detects amend (HEAD~1 == last_commit) and deletes old decisions
         with patch("plumb.programs.validate_api_access"), \
              patch("plumb.git_hook._analyze_diff", return_value="change"), \
              patch("plumb.git_hook._extract_decisions_from_conversation", return_value=[]), \
              patch("plumb.git_hook._extract_decisions_from_diff", return_value=[]), \
              patch("plumb.git_hook.deduplicate_decisions", side_effect=lambda decisions, **kw: decisions), \
              patch("plumb.coverage_reporter.print_coverage_report"):
-            run_hook(full_repo)
+            run_hook(full_repo, post_commit=True)
 
         # Old decision should be removed
         decisions = read_all_decisions(full_repo)
