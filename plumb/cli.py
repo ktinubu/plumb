@@ -119,7 +119,7 @@ def _init_clone_setup(repo_root: Path, cfg: PlumbConfig) -> None:
         hook_path.chmod(0o755)
         post_commit_path = hooks_dir / "post-commit"
         post_commit_path.write_text(
-            '#!/bin/sh\n[ "$PLUMB_SKIP" = "1" ] && exit 0\nplumb post-commit\nnohup plumb hook --post-commit > /dev/null 2>&1 &\n'
+            '#!/bin/sh\n[ "$PLUMB_SKIP" = "1" ] && exit 0\nplumb post-commit\nnohup plumb hook --post-commit >> .plumb/hook.log 2>&1 &\n'
         )
         post_commit_path.chmod(0o755)
 
@@ -255,7 +255,7 @@ def init():
         hook_path.chmod(0o755)
         post_commit_path = hooks_dir / "post-commit"
         post_commit_path.write_text(
-            '#!/bin/sh\n[ "$PLUMB_SKIP" = "1" ] && exit 0\nplumb post-commit\nnohup plumb hook --post-commit > /dev/null 2>&1 &\n'
+            '#!/bin/sh\n[ "$PLUMB_SKIP" = "1" ] && exit 0\nplumb post-commit\nnohup plumb hook --post-commit >> .plumb/hook.log 2>&1 &\n'
         )
         post_commit_path.chmod(0o755)
 
