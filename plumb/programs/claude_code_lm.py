@@ -11,6 +11,8 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
+import time
 from types import SimpleNamespace
 from typing import Any
 
@@ -62,6 +64,8 @@ def _call_claude(prompt: str, model: str | None = None, timeout: int = 300) -> s
         )
     }
 
+    print(f"[ClaudeCodeLM] Calling claude -p --model {model or 'default'} ({len(prompt)} chars)...", file=sys.stderr)
+    start = time.monotonic()
     result = subprocess.run(
         cmd,
         input=prompt,
@@ -70,10 +74,12 @@ def _call_claude(prompt: str, model: str | None = None, timeout: int = 300) -> s
         env=env,
         timeout=timeout,
     )
+    elapsed = time.monotonic() - start
     if result.returncode != 0:
         raise RuntimeError(
             f"claude -p exited {result.returncode}\nstderr: {result.stderr}"
         )
+    print(f"[ClaudeCodeLM] Got response ({len(result.stdout)} chars) in {elapsed:.2f}s", file=sys.stderr)
     return result.stdout
 
 
@@ -144,11 +150,6 @@ class ClaudeCodeLM(BaseLM):
         messages: list[dict[str, Any]] | None = None,
         **kwargs: Any,
     ) -> SimpleNamespace:
-        import sys
-
         text_input = _serialize_messages(prompt, messages)
-        input_len = len(text_input)
-        print(f"[ClaudeCodeLM] Calling claude -p --model {self.cli_model} ({input_len} chars)...", file=sys.stderr)
         response_text = _call_claude(text_input, model=self.cli_model, timeout=self.timeout)
-        print(f"[ClaudeCodeLM] Got response ({len(response_text)} chars)", file=sys.stderr)
         return _make_response(response_text, self.model)
